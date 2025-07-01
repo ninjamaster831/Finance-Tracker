@@ -102,6 +102,7 @@ fun FinanceTrackerScreen(
             BottomNavigationBar(navController = navController, currentRoute = currentRoute)
 
         }
+
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -122,8 +123,6 @@ fun FinanceTrackerScreen(
         }
     }
 }
-
-
 
 @Composable
 fun SearchByDateDialog(
@@ -393,8 +392,7 @@ fun TransactionList(transactions: List<Transaction>) {
 fun BottomNavigationBar(
     navController: NavController,
     currentRoute: String
-)
- {
+) {
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
         NavigationBarItem(
             selected = currentRoute == "main",
@@ -412,18 +410,21 @@ fun BottomNavigationBar(
             },
             icon = { Icon(Icons.Default.Search, contentDescription = "Search") }
         )
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.weight(1f)) // Space for center FAB
         NavigationBarItem(
-            selected = false,
-            onClick = { },
+            selected = currentRoute == "stats",
+            onClick = {
+                if (currentRoute != "stats") navController.navigate("stats")
+            },
             icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Stats") }
         )
         NavigationBarItem(
-            selected = false,
-            onClick = { },
+            selected = currentRoute == "settings",
+            onClick = {
+                if (currentRoute != "settings") navController.navigate("settings")
+            },
             icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") }
         )
     }
-
 }
 
