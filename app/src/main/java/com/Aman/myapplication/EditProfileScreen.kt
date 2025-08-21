@@ -1,6 +1,7 @@
 package com.Aman.myapplication
 
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -152,6 +153,8 @@ fun EditProfileScreen(
         }
     }
 }
+// Add this to your EditProfileScreen.kt - replace the existing CreateGroupScreen
+
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -169,14 +172,35 @@ fun CreateGroupScreen(
     val searchResults by groupViewModel.searchResults.collectAsState()
     val isLoading by groupViewModel.isLoading.collectAsState()
     val error by groupViewModel.error.collectAsState()
+    val successMessage by groupViewModel.successMessage.collectAsState()
 
-    LaunchedEffect(Unit) {
+    // Add user ID validation with logging
+    LaunchedEffect(currentUserId) {
+        Log.d("CreateGroupScreen", "Current user ID received: '$currentUserId'")
+        if (currentUserId.isBlank()) {
+            Log.e("CreateGroupScreen", "No valid user ID provided, navigating back")
+            // Don't navigate back immediately, let the user see the error
+            return@LaunchedEffect
+        }
+        // Only load friends if we have a valid user ID
+        Log.d("CreateGroupScreen", "Loading friends for user: $currentUserId")
         groupViewModel.loadUserFriends(currentUserId)
     }
 
     LaunchedEffect(searchQuery) {
-        if (searchQuery.isNotBlank()) {
+        if (searchQuery.isNotBlank() && currentUserId.isNotBlank()) {
             groupViewModel.searchUsers(searchQuery)
+        } else {
+            groupViewModel.clearSearchResults()
+        }
+    }
+
+    // Handle success navigation
+    LaunchedEffect(successMessage) {
+        if (successMessage != null) {
+            Log.d("CreateGroupScreen", "Success message received: $successMessage")
+            groupViewModel.clearSuccessMessage()
+            navController.popBackStack()
         }
     }
 
@@ -192,17 +216,28 @@ fun CreateGroupScreen(
                 actions = {
                     TextButton(
                         onClick = {
-                            groupViewModel.createGroup(
-                                name = groupName,
-                                description = groupDescription,
-                                userId = currentUserId,
-                                selectedFriends = selectedFriends.toList()
-                            )
-                            navController.popBackStack()
+                            if (groupName.isNotBlank() && !isLoading && currentUserId.isNotBlank()) {
+                                Log.d("CreateGroupScreen", "Creating group: name='$groupName', userId='$currentUserId', friends=${selectedFriends.size}")
+                                groupViewModel.createGroup(
+                                    name = groupName,
+                                    description = groupDescription.ifBlank { null },
+                                    userId = currentUserId,
+                                    selectedFriends = selectedFriends.toList()
+                                )
+                            } else {
+                                Log.w("CreateGroupScreen", "Cannot create group: name='$groupName', userId='$currentUserId', loading=$isLoading")
+                            }
                         },
-                        enabled = groupName.isNotBlank() && !isLoading
+                        enabled = groupName.isNotBlank() && !isLoading && currentUserId.isNotBlank()
                     ) {
-                        Text("Create")
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Create")
+                        }
                     }
                 }
             )
@@ -215,6 +250,67 @@ fun CreateGroupScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // User ID validation error
+            if (currentUserId.isBlank()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Authentication Error",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                text = "Unable to get current user ID. Please sign out and sign back in.",
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Debug info (you can remove this later)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Text(
+                        text = "Debug: User ID = '$currentUserId' (${currentUserId.length} chars)",
+                        modifier = Modifier.padding(8.dp),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            // Error message
+            error?.let { errorMessage ->
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Text(
+                            text = errorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            }
+
             // Group Info Section
             item {
                 Card(
@@ -236,7 +332,9 @@ fun CreateGroupScreen(
                             onValueChange = { groupName = it },
                             label = { Text("Group Name *") },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
+                            singleLine = true,
+                            isError = groupName.isEmpty(),
+                            enabled = currentUserId.isNotBlank()
                         )
 
                         OutlinedTextField(
@@ -244,93 +342,154 @@ fun CreateGroupScreen(
                             onValueChange = { groupDescription = it },
                             label = { Text("Description (Optional)") },
                             modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
+                            maxLines = 3,
+                            enabled = currentUserId.isNotBlank()
                         )
                     }
                 }
             }
 
-            // Add Friends Section
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "Add Friends",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            label = { Text("Search by email or name") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                    }
-                }
-            }
-
-            // Friends List
-            if (friends.isNotEmpty()) {
+            // Only show friends section if user ID is valid
+            if (currentUserId.isNotBlank()) {
+                // Add Friends Section
                 item {
-                    Text(
-                        text = "Your Friends",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
-                }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                text = "Add Friends",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
 
-                items(friends.size) { index ->
-                    val friend = friends[index]
-                    FriendSelectionItem(
-                        friend = friend,
-                        isSelected = selectedFriends.contains(friend.friend_id),
-                        onToggle = { isSelected ->
-                            selectedFriends = if (isSelected) {
-                                selectedFriends + friend.friend_id
-                            } else {
-                                selectedFriends - friend.friend_id
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                label = { Text("Search by email or name") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            // Selected friends count
+                            if (selectedFriends.isNotEmpty()) {
+                                Text(
+                                    text = "${selectedFriends.size} friend(s) selected",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
                         }
-                    )
-                }
-            }
-
-            // Search Results
-            if (searchResults.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Search Results",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
+                    }
                 }
 
-                items(searchResults.size) { index ->
-                    val user = searchResults[index]
-                    if (user.id != currentUserId) {
-                        UserSearchItem(
-                            user = user,
-                            onAddFriend = {
-                                groupViewModel.sendFriendRequest(currentUserId, user.email)
+                // Friends List
+                if (friends.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Your Friends (${friends.size})",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+
+                    items(friends.size) { index ->
+                        val friend = friends[index]
+                        FriendSelectionItem(
+                            friend = friend,
+                            isSelected = selectedFriends.contains(friend.friend_id),
+                            onToggle = { isSelected ->
+                                selectedFriends = if (isSelected) {
+                                    selectedFriends + friend.friend_id
+                                } else {
+                                    selectedFriends - friend.friend_id
+                                }
                             }
                         )
+                    }
+                }
+
+                // Search Results
+                if (searchResults.isNotEmpty() && searchQuery.isNotBlank()) {
+                    item {
+                        Text(
+                            text = "Search Results (${searchResults.size})",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+
+                    items(searchResults.size) { index ->
+                        val user = searchResults[index]
+                        if (user.id != currentUserId) {
+                            UserSearchItem(
+                                user = user,
+                                onAddFriend = {
+                                    groupViewModel.sendFriendRequest(currentUserId, user.email)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Empty state for friends
+                if (friends.isEmpty() && searchResults.isEmpty() && searchQuery.isBlank() && !isLoading) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "No Friends Yet",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Search for users to add as friends and include them in your group",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Loading indicator for friends
+                if (isLoading) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Loading friends...")
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
-
 @Composable
 fun FriendSelectionItem(
     friend: Friend,

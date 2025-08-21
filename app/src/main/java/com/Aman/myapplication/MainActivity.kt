@@ -2,6 +2,7 @@ package com.Aman.myapplication
 
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -79,7 +80,16 @@ fun AppNavigation(
 
     when (authState) {
         is AuthState.Authenticated -> {
-            val currentUserId = userProfile?.id ?: ""
+            // Get current user ID using the new method
+            val currentUserId = authViewModel.getCurrentUserId()
+
+            Log.d("MainActivity", "Current user ID: '$currentUserId', auth state: $authState")
+
+            // Don't show the main app if we don't have a valid user ID
+            if (currentUserId.isBlank()) {
+                Log.w("MainActivity", "No valid user ID, showing loading screen")
+                LoadingScreen()
+            }
 
             // User is logged in, show main app
             NavHost(

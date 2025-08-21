@@ -1,5 +1,6 @@
 package com.Aman.myapplication.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,7 @@ sealed class ResetPasswordState {
 class SupabaseAuthViewModel : ViewModel() {
     private val authRepository = SupabaseAuthRepository()
 
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
@@ -52,11 +53,23 @@ class SupabaseAuthViewModel : ViewModel() {
 
     private fun checkAuthState() {
         viewModelScope.launch {
-            val currentUser = authRepository.getCurrentUser()
-            if (currentUser != null) {
-                _authState.value = AuthState.Authenticated(currentUser)
-                loadUserProfile()
-            } else {
+            try {
+                Log.d("SupabaseAuthVM", "Checking auth state...")
+                _authState.value = AuthState.Loading
+
+                val currentUser = authRepository.getCurrentUser()
+                Log.d("SupabaseAuthVM", "Current user from repository: ${currentUser?.id}")
+
+                if (currentUser != null) {
+                    Log.d("SupabaseAuthVM", "User authenticated: ${currentUser.id}")
+                    _authState.value = AuthState.Authenticated(currentUser)
+                    loadUserProfile()
+                } else {
+                    Log.d("SupabaseAuthVM", "No authenticated user found")
+                    _authState.value = AuthState.Unauthenticated
+                }
+            } catch (e: Exception) {
+                Log.e("SupabaseAuthVM", "Error checking auth state: ${e.message}", e)
                 _authState.value = AuthState.Unauthenticated
             }
         }
@@ -65,12 +78,16 @@ class SupabaseAuthViewModel : ViewModel() {
     fun signUp(email: String, password: String, fullName: String, phone: String) {
         viewModelScope.launch {
             _isLoading.value = true
+            _authState.value = AuthState.Loading
+
             when (val result = authRepository.signUp(email, password, fullName, phone)) {
                 is AuthResult.Success -> {
+                    Log.d("SupabaseAuthVM", "Signup successful: ${result.user.id}")
                     _authState.value = AuthState.Authenticated(result.user)
                     loadUserProfile()
                 }
                 is AuthResult.Error -> {
+                    Log.e("SupabaseAuthVM", "Signup failed: ${result.message}")
                     _authState.value = AuthState.Error(result.message)
                 }
             }
@@ -81,12 +98,16 @@ class SupabaseAuthViewModel : ViewModel() {
     fun signIn(email: String, password: String) {
         viewModelScope.launch {
             _isLoading.value = true
+            _authState.value = AuthState.Loading
+
             when (val result = authRepository.signIn(email, password)) {
                 is AuthResult.Success -> {
+                    Log.d("SupabaseAuthVM", "Signin successful: ${result.user.id}")
                     _authState.value = AuthState.Authenticated(result.user)
                     loadUserProfile()
                 }
                 is AuthResult.Error -> {
+                    Log.e("SupabaseAuthVM", "Signin failed: ${result.message}")
                     _authState.value = AuthState.Error(result.message)
                 }
             }
@@ -96,6 +117,7 @@ class SupabaseAuthViewModel : ViewModel() {
 
     fun signOut() {
         viewModelScope.launch {
+            Log.d("SupabaseAuthVM", "Signing out")
             authRepository.signOut()
             _authState.value = AuthState.Unauthenticated
             _userProfile.value = null
@@ -116,10 +138,41 @@ class SupabaseAuthViewModel : ViewModel() {
 
     fun loadUserProfile() {
         viewModelScope.launch {
-            val currentUser = authRepository.getCurrentUser()
-            if (currentUser != null) {
-                val profile = authRepository.getUserProfile(currentUser.id)
-                _userProfile.value = profile
+            try {
+                // Get the current user ID from auth state
+                val currentUserId = when (val currentAuthState = _authState.value) {
+                    is AuthState.Authenticated -> currentAuthState.user.id
+                    else -> {
+                        Log.w("SupabaseAuthVM", "Cannot load profile - user not authenticated")
+                        return@launch
+                    }
+                }
+
+                Log.d("SupabaseAuthVM", "Loading profile for user: $currentUserId")
+
+                val profile = authRepository.getUserProfile(currentUserId)
+                if (profile != null) {
+                    Log.d("SupabaseAuthVM", "Profile loaded successfully")
+                    _userProfile.value = profile
+                } else {
+                    Log.w("SupabaseAuthVM", "Profile not found for user: $currentUserId")
+                }
+            } catch (e: Exception) {
+                Log.e("SupabaseAuthVM", "Error loading user profile: ${e.message}", e)
+            }
+        }
+    }
+
+    // Add a method to get current user ID reliably
+    fun getCurrentUserId(): String {
+        return when (val currentAuthState = _authState.value) {
+            is AuthState.Authenticated -> {
+                Log.d("SupabaseAuthVM", "Getting current user ID: ${currentAuthState.user.id}")
+                currentAuthState.user.id
+            }
+            else -> {
+                Log.w("SupabaseAuthVM", "No authenticated user for getting user ID, state: $currentAuthState")
+                ""
             }
         }
     }
