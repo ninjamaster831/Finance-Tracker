@@ -12,12 +12,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.compose.foundation.background
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import com.Aman.myapplication.data.Transaction
-import com.patrykandpatrick.vico.compose.chart.Chart
-import com.patrykandpatrick.vico.compose.chart.column.columnChart
-import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
-import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
-import com.patrykandpatrick.vico.core.entry.entryModelOf
+import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,12 +28,6 @@ fun StatsScreen(
     val totalIncome = transactions.filter { it.isIncome }.sumOf { it.amount }
     val totalExpense = transactions.filter { !it.isIncome }.sumOf { it.amount }
     val balance = totalIncome - totalExpense
-
-    // Use index-based bar entries (0f -> Income, 1f -> Expense)
-    val entryModel = entryModelOf(
-        0f to totalIncome.toFloat(),
-        1f to totalExpense.toFloat()
-    )
 
     Scaffold(
         topBar = {
@@ -82,19 +75,12 @@ fun StatsScreen(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
             ) {
-                Chart(
-                    chart = columnChart(),
-                    model = entryModel,
-                    startAxis = rememberStartAxis(),
-                    bottomAxis = rememberBottomAxis(
-                        valueFormatter = { value, _ ->
-                            when (value) {
-                                0f -> "Income"
-                                1f -> "Expense"
-                                else -> ""
-                            }
-                        }
-                    )
+                SimpleBarChart(
+                    incomeAmount = totalIncome.toFloat(),
+                    expenseAmount = totalExpense.toFloat(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
                 )
             }
         }
@@ -110,6 +96,96 @@ fun StatCard(title: String, value: String, valueColor: Color, bgColor: Color) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(title, fontSize = 16.sp, color = Color.Gray)
             Text(value, fontSize = 22.sp, color = valueColor, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun SimpleBarChart(
+    incomeAmount: Float,
+    expenseAmount: Float,
+    modifier: Modifier = Modifier
+) {
+    val maxAmount = max(incomeAmount, expenseAmount)
+
+    Column(modifier = modifier) {
+        // Chart area
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            // Income bar
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "₹%.0f".format(incomeAmount),
+                    fontSize = 12.sp,
+                    color = Color(0xFF00796B),
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .width(60.dp)
+                        .height((incomeAmount / maxAmount * 120).dp)
+                        .background(
+                            Color(0xFF00796B),
+                            RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                        )
+                )
+            }
+
+            // Expense bar
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "₹%.0f".format(expenseAmount),
+                    fontSize = 12.sp,
+                    color = Color(0xFFC62828),
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .width(60.dp)
+                        .height((expenseAmount / maxAmount * 120).dp)
+                        .background(
+                            Color(0xFFC62828),
+                            RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                        )
+                )
+            }
+        }
+
+        // Labels
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Text(
+                text = "Income",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF00796B),
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Expense",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFC62828),
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
