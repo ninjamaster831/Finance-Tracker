@@ -1,22 +1,23 @@
-// Updated GroupViewModel.kt with better error handling and debugging
-
+// Updated GroupViewModel.kt
 package com.Aman.myapplication.viewmodel
 
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.Aman.myapplication.Friend
-import com.Aman.myapplication.Group
-import com.Aman.myapplication.GroupMember
-import com.Aman.myapplication.GroupRepository
-import com.Aman.myapplication.User
+import com.Aman.myapplication.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class GroupViewModel(private val groupRepository: GroupRepository) : ViewModel() {
+class GroupViewModel(
+    private val groupRepository: GroupRepository,
+    private val expenseRepository: ExpenseRepository
+) : ViewModel() {
 
+    // Existing properties...
     private val _groups = MutableStateFlow<List<Group>>(emptyList())
     val groups: StateFlow<List<Group>> = _groups.asStateFlow()
 
@@ -41,6 +42,24 @@ class GroupViewModel(private val groupRepository: GroupRepository) : ViewModel()
     private val _successMessage = MutableStateFlow<String?>(null)
     val successMessage: StateFlow<String?> = _successMessage.asStateFlow()
 
+    // New properties for expenses and chat
+    private val _groupExpenses = MutableStateFlow<List<GroupExpense>>(emptyList())
+    val groupExpenses: StateFlow<List<GroupExpense>> = _groupExpenses.asStateFlow()
+
+    private val _userBalances = MutableStateFlow<List<UserBalance>>(emptyList())
+    val userBalances: StateFlow<List<UserBalance>> = _userBalances.asStateFlow()
+
+    private val _groupMessages = MutableStateFlow<List<GroupMessage>>(emptyList())
+    val groupMessages: StateFlow<List<GroupMessage>> = _groupMessages.asStateFlow()
+
+    private val _isLoadingExpenses = MutableStateFlow(false)
+    val isLoadingExpenses: StateFlow<Boolean> = _isLoadingExpenses.asStateFlow()
+
+    private val _isLoadingMessages = MutableStateFlow(false)
+    val isLoadingMessages: StateFlow<Boolean> = _isLoadingMessages.asStateFlow()
+
+    // Existing methods... (keep all existing methods)
+
     fun createGroup(name: String, description: String?, userId: String, selectedFriends: List<String> = emptyList()) {
         viewModelScope.launch {
             Log.d("GroupViewModel", "Starting group creation: name=$name, userId=$userId, friends=${selectedFriends.size}")
@@ -49,7 +68,6 @@ class GroupViewModel(private val groupRepository: GroupRepository) : ViewModel()
             _error.value = null
 
             try {
-                // Validate inputs
                 if (name.isBlank()) {
                     _error.value = "Group name cannot be empty"
                     _isLoading.value = false
@@ -62,18 +80,14 @@ class GroupViewModel(private val groupRepository: GroupRepository) : ViewModel()
                     return@launch
                 }
 
-                Log.d("GroupViewModel", "Calling repository.createGroup...")
-
                 groupRepository.createGroup(name, description, userId).fold(
                     onSuccess = { group ->
                         Log.d("GroupViewModel", "Group created successfully: ${group.id}")
 
-                        // Add selected friends to the group
                         var allMembersAdded = true
                         var addedCount = 0
 
                         selectedFriends.forEach { friendId ->
-                            Log.d("GroupViewModel", "Adding friend $friendId to group ${group.id}")
                             groupRepository.addMemberToGroup(group.id, friendId).fold(
                                 onSuccess = {
                                     addedCount++
@@ -93,27 +107,198 @@ class GroupViewModel(private val groupRepository: GroupRepository) : ViewModel()
                             else -> "Group created! Could not add any members."
                         }
 
-                        Log.d("GroupViewModel", "Final result: $message")
                         _successMessage.value = message
-
-                        // Refresh the groups list
                         loadUserGroups(userId)
                     },
                     onFailure = { exception ->
-                        Log.e("GroupViewModel", "Failed to create group: ${exception.message}", exception)
                         _error.value = exception.message ?: "Failed to create group"
                     }
                 )
             } catch (e: Exception) {
-                Log.e("GroupViewModel", "Unexpected error during group creation: ${e.message}", e)
                 _error.value = e.message ?: "An unexpected error occurred"
             } finally {
                 _isLoading.value = false
-                Log.d("GroupViewModel", "Group creation process completed")
             }
         }
     }
 
+    // New methods for expenses
+
+    fun createExpense(
+        groupId: String,
+        title: String,
+        description: String?,
+        amount: Double,
+        category: String,
+        paidBy: String,
+        splitWith: List<String>
+    ) {
+        viewModelScope.launch {
+            _isLoadingExpenses.value = true
+            _error.value = null
+
+            try {
+                if (title.isBlank()) {
+                    _error.value = "Expense title cannot be empty"
+                    return@launch
+                }
+
+                if (amount <= 0) {
+                    _error.value = "Amount must be greater than 0"
+                    return@launch
+                }
+
+                if (splitWith.isEmpty()) {
+                    _error.value = "Please select at least one person to split with"
+                    return@launch
+                }
+
+                val request = CreateExpenseRequest(
+                    group_id = groupId,
+                    paid_by = paidBy,
+                    title = title,
+                    description = description,
+                    amount = amount,
+                    category = category,
+                    date = System.currentTimeMillis(),
+                    split_with = splitWith
+                )
+
+                expenseRepository.createExpense(request).fold(
+                    onSuccess = { expense ->
+                        Log.d("GroupViewModel", "Expense created successfully: ${expense.id}")
+                        _successMessage.value = "Expense added successfully!"
+
+                        // Refresh expenses and balances
+                        loadGroupExpenses(groupId)
+                        calculateGroupBalances(groupId)
+                        loadGroupMessages(groupId) // Refresh messages to show the expense message
+                    },
+                    onFailure = { exception ->
+                        Log.e("GroupViewModel", "Failed to create expense: ${exception.message}")
+                        _error.value = exception.message ?: "Failed to create expense"
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Unexpected error creating expense: ${e.message}", e)
+                _error.value = e.message ?: "An unexpected error occurred"
+            } finally {
+                _isLoadingExpenses.value = false
+            }
+        }
+    }
+
+    fun loadGroupExpenses(groupId: String) {
+        viewModelScope.launch {
+            _isLoadingExpenses.value = true
+            _error.value = null
+
+            expenseRepository.getGroupExpenses(groupId).fold(
+                onSuccess = { expenses ->
+                    Log.d("GroupViewModel", "Loaded ${expenses.size} expenses")
+                    _groupExpenses.value = expenses
+                },
+                onFailure = { exception ->
+                    Log.e("GroupViewModel", "Failed to load expenses: ${exception.message}")
+                    _error.value = exception.message ?: "Failed to load expenses"
+                }
+            )
+            _isLoadingExpenses.value = false
+        }
+    }
+
+    fun calculateGroupBalances(groupId: String) {
+        viewModelScope.launch {
+            expenseRepository.calculateGroupBalances(groupId).fold(
+                onSuccess = { balances ->
+                    Log.d("GroupViewModel", "Calculated balances for ${balances.size} users")
+                    _userBalances.value = balances
+                },
+                onFailure = { exception ->
+                    Log.e("GroupViewModel", "Failed to calculate balances: ${exception.message}")
+                    _error.value = exception.message ?: "Failed to calculate balances"
+                }
+            )
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    fun settleSplit(splitId: String, groupId: String) {
+        viewModelScope.launch {
+            expenseRepository.settleSplit(splitId).fold(
+                onSuccess = {
+                    _successMessage.value = "Split settled successfully!"
+                    loadGroupExpenses(groupId)
+                    calculateGroupBalances(groupId)
+                },
+                onFailure = { exception ->
+                    _error.value = exception.message ?: "Failed to settle split"
+                }
+            )
+        }
+    }
+
+    // New methods for chat
+
+    fun sendMessage(groupId: String, senderId: String, message: String) {
+        viewModelScope.launch {
+            if (message.isBlank()) return@launch
+
+            val request = CreateMessageRequest(
+                group_id = groupId,
+                sender_id = senderId,
+                message = message.trim(),
+                message_type = "text"
+            )
+
+            expenseRepository.sendMessage(request).fold(
+                onSuccess = { newMessage ->
+                    Log.d("GroupViewModel", "Message sent successfully")
+                    // Add the new message to the current list for immediate UI update
+                    val currentMessages = _groupMessages.value.toMutableList()
+                    currentMessages.add(newMessage)
+                    _groupMessages.value = currentMessages
+                },
+                onFailure = { exception ->
+                    Log.e("GroupViewModel", "Failed to send message: ${exception.message}")
+                    _error.value = exception.message ?: "Failed to send message"
+                }
+            )
+        }
+    }
+
+    fun loadGroupMessages(groupId: String) {
+        viewModelScope.launch {
+            _isLoadingMessages.value = true
+
+            expenseRepository.getGroupMessages(groupId).fold(
+                onSuccess = { messages ->
+                    Log.d("GroupViewModel", "Loaded ${messages.size} messages")
+                    _groupMessages.value = messages
+                },
+                onFailure = { exception ->
+                    Log.e("GroupViewModel", "Failed to load messages: ${exception.message}")
+                    _error.value = exception.message ?: "Failed to load messages"
+                }
+            )
+            _isLoadingMessages.value = false
+        }
+    }
+
+    // Clear methods
+    fun clearExpenses() {
+        _groupExpenses.value = emptyList()
+    }
+
+    fun clearMessages() {
+        _groupMessages.value = emptyList()
+    }
+
+    fun clearBalances() {
+        _userBalances.value = emptyList()
+    }
+
+    // Existing methods (keep all of them)...
     fun loadUserGroups(userId: String) {
         viewModelScope.launch {
             Log.d("GroupViewModel", "Loading groups for user: $userId")
@@ -156,7 +341,6 @@ class GroupViewModel(private val groupRepository: GroupRepository) : ViewModel()
             _isLoading.value = true
             _error.value = null
 
-            // Load both group info and members
             groupRepository.getGroupById(groupId).fold(
                 onSuccess = { group ->
                     _currentGroup.value = group
@@ -214,7 +398,6 @@ class GroupViewModel(private val groupRepository: GroupRepository) : ViewModel()
             groupRepository.sendFriendRequest(userId, friendEmail).fold(
                 onSuccess = {
                     _successMessage.value = "Friend request sent!"
-                    // Optionally refresh search results or friends list
                 },
                 onFailure = { exception ->
                     _error.value = exception.message ?: "Failed to send friend request"

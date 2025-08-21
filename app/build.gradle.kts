@@ -66,7 +66,8 @@ dependencies {
 
     // Supabase
     implementation(libs.supabase.postgrest)
-
+    implementation("io.github.jan-tennert.supabase:realtime-kt:2.0.4")
+    implementation("io.github.jan-tennert.supabase:auth-kt:2.0.4")
     // Ktor
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.core)

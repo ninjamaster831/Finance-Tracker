@@ -190,4 +190,33 @@ class SupabaseAuthRepository {
             false
         }
     }
+// Add these methods to SupabaseAuthRepository.kt
+
+    suspend fun getUserByEmail(email: String): User? {
+        return try {
+            client.from("users")
+                .select() {
+                    filter {
+                        eq("email", email)
+                    }
+                }
+                .decodeSingleOrNull<User>()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun getUserById(userId: String): User? {
+        return try {
+            client.from("users")
+                .select() {
+                    filter {
+                        eq("id", userId)
+                    }
+                }
+                .decodeSingleOrNull<User>()
+        } catch (e: Exception) {
+            null
+        }
+    }
 }

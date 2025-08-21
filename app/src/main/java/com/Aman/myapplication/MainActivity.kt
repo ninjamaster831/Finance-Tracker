@@ -1,3 +1,4 @@
+// Updated MainActivity.kt
 package com.Aman.myapplication
 
 import android.os.Build
@@ -39,13 +40,16 @@ class MainActivity : ComponentActivity() {
     private val authViewModel: SupabaseAuthViewModel by viewModels()
     private val transactionViewModel: TransactionViewModel by viewModels()
 
-    // Create GroupViewModel with repository
+    // Create GroupViewModel with both repositories
     private val groupViewModel: GroupViewModel by viewModels {
         object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 if (modelClass.isAssignableFrom(GroupViewModel::class.java)) {
                     @Suppress("UNCHECKED_CAST")
-                    return GroupViewModel(GroupRepository(SupabaseConfig.client)) as T
+                    return GroupViewModel(
+                        GroupRepository(SupabaseConfig.client),
+                        ExpenseRepository(SupabaseConfig.client)
+                    ) as T
                 }
                 throw IllegalArgumentException("Unknown ViewModel class")
             }
@@ -89,95 +93,96 @@ fun AppNavigation(
             if (currentUserId.isBlank()) {
                 Log.w("MainActivity", "No valid user ID, showing loading screen")
                 LoadingScreen()
-            }
+            } else {
+                // User is logged in, show main app
+                NavHost(
+                    navController = navController,
+                    startDestination = "main"
+                ) {
+                    composable("main") {
+                        FinanceTrackerScreen(
+                            viewModel = transactionViewModel,
+                            authViewModel = authViewModel,
+                            onSearchNavigate = { navController.navigate("search") },
+                            navController = navController,
+                            currentRoute = "main"
+                        )
+                    }
+                    composable("search") {
+                        SearchScreen(
+                            viewModel = transactionViewModel,
+                            navController = navController,
+                            currentRoute = "search"
+                        )
+                    }
+                    composable("stats") {
+                        StatsScreen(
+                            viewModel = transactionViewModel,
+                            navController = navController,
+                            currentRoute = "stats"
+                        )
+                    }
+                    composable("settings") {
+                        ModernSettingsScreen(
+                            authViewModel = authViewModel,
+                            navController = navController,
+                            currentRoute = "settings"
+                        )
+                    }
 
-            // User is logged in, show main app
-            NavHost(
-                navController = navController,
-                startDestination = "main"
-            ) {
-                composable("main") {
-                    FinanceTrackerScreen(
-                        viewModel = transactionViewModel,
-                        authViewModel = authViewModel,
-                        onSearchNavigate = { navController.navigate("search") },
-                        navController = navController,
-                        currentRoute = "main"
-                    )
-                }
-                composable("search") {
-                    SearchScreen(
-                        viewModel = transactionViewModel,
-                        navController = navController,
-                        currentRoute = "search"
-                    )
-                }
-                composable("stats") {
-                    StatsScreen(
-                        viewModel = transactionViewModel,
-                        navController = navController,
-                        currentRoute = "stats"
-                    )
-                }
-                composable("settings") {
-                    ModernSettingsScreen(
-                        authViewModel = authViewModel,
-                        navController = navController,
-                        currentRoute = "settings"
-                    )
-                }
+                    // Profile Management
+                    composable("edit_profile") {
+                        EditProfileScreen(
+                            navController = navController,
+                            authViewModel = authViewModel
+                        )
+                    }
 
-                // Profile Management
-                composable("edit_profile") {
-                    EditProfileScreen(
-                        navController = navController,
-                        authViewModel = authViewModel
-                    )
-                }
+                    // Group Management Routes
+                    composable("create_group") {
+                        CreateGroupScreen(
+                            navController = navController,
+                            groupViewModel = groupViewModel,
+                            currentUserId = currentUserId
+                        )
+                    }
 
-                // Group Management Routes
-                composable("create_group") {
-                    CreateGroupScreen(
-                        navController = navController,
-                        groupViewModel = groupViewModel,
-                        currentUserId = currentUserId
-                    )
-                }
+                    composable("manage_groups") {
+                        ManageGroupsScreen(
+                            navController = navController,
+                            groupViewModel = groupViewModel,
+                            currentUserId = currentUserId
+                        )
+                    }
 
-                composable("manage_groups") {
-                    ManageGroupsScreen(
-                        navController = navController,
-                        groupViewModel = groupViewModel,
-                        currentUserId = currentUserId
-                    )
-                }
+                    // Updated group details route to use enhanced screen
+                    composable("group_details/{groupId}") { backStackEntry ->
+                        val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+                        EnhancedGroupDetailsScreen(
+                            navController = navController,
+                            groupViewModel = groupViewModel,
+                            groupId = groupId,
+                            currentUserId = currentUserId
+                        )
+                    }
 
-                composable("group_details/{groupId}") { backStackEntry ->
-                    val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
-                    GroupDetailsScreen(
-                        navController = navController,
-                        groupViewModel = groupViewModel,
-                        groupId = groupId,
-                        currentUserId = currentUserId
-                    )
-                }
+                    composable("add_group_members/{groupId}") { backStackEntry ->
+                        val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+                        AddGroupMembersScreen(
+                            navController = navController,
+                            groupViewModel = groupViewModel,
+                            groupId = groupId,
+                            currentUserId = currentUserId
+                        )
+                    }
 
-                composable("add_group_members/{groupId}") { backStackEntry ->
-                    val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
-                    AddGroupMembersScreen(
-                        navController = navController,
-                        groupViewModel = groupViewModel,
-                        groupId = groupId,
-                        currentUserId = currentUserId
-                    )
-                }
-
-                // Legal Pages
-                composable("privacy_policy") {
-                    PrivacyPolicyScreen(navController = navController)
-                }
-                composable("terms_conditions") {
-                    TermsConditionsScreen(navController = navController)
+                    // Legal Pages
+                    composable("privacy_policy") {
+                        PrivacyPolicyScreen(navController = navController)
+                    }
+                    composable("terms_conditions") {
+                        TermsConditionsScreen(navController = navController)
+                    }
                 }
             }
         }
@@ -205,7 +210,7 @@ fun LoadingScreen() {
     }
 }
 
-// Placeholder screens for the other navigation destinations
+// Keep your existing placeholder screens for search and stats
 @Composable
 fun SearchScreen(
     viewModel: TransactionViewModel,
@@ -246,7 +251,7 @@ fun StatsScreen(
     }
 }
 
-// Add Group Members Screen (additional screen for adding members to existing groups)
+// Keep the existing AddGroupMembersScreen and AddMemberItem components
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddGroupMembersScreen(
